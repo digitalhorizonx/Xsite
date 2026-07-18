@@ -5,9 +5,28 @@ on:
     branches: [main]
   pull_request:
 
+env:
+  DATABASE_URL: postgresql://postgres:postgres@localhost:5432/xsite_test
+
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: xsite_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - uses: actions/checkout@v4
 
@@ -22,11 +41,29 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Lint
+        run: pnpm lint
+
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Unit tests
-        run: pnpm test
+      - name: Validate Prisma schema
+        run: pnpm --filter @xsite/db exec prisma validate
 
-      - name: Build
+      - name: Apply database migrations (validates every migration applies cleanly)
+        run: pnpm db:migrate:deploy
+
+      - name: Migration status (fails on drift between schema and applied migrations)
+        run: pnpm db:migrate:status
+
+      - name: Unit tests (@xsite/core — no database)
+        run: pnpm test:unit
+
+      - name: Integration tests (@xsite/db — real Postgres, multi-tenancy + persistence)
+        run: pnpm test:integration
+
+      - name: Dependency audit (non-blocking — surfaced for review, not a merge gate)
+        run: pnpm audit --audit-level critical || true
+
+      - name: Production build
         run: pnpm build
