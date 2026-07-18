@@ -147,13 +147,10 @@ export interface SeoProvider {
   crawl(ctx: ProviderRequestContext, req: { siteUrl: string }): Promise<ProviderResult<{ issues: Array<{ severity: string; page: string; issue: string }> }>>;
 }
 
-export interface PaymentProvider {
-  readonly key: string;
-  readonly category: 'payment';
-  /** All charges are idempotent via ctx.idempotencyKey and policy-gated upstream. */
-  charge(ctx: ProviderRequestContext, req: { amount: number; currency: string; purpose: 'deposit' | 'final' | 'subscription' | 'overage'; customerRef: string }): Promise<ProviderResult<{ paymentRef: string }>>;
-  refund(ctx: ProviderRequestContext, req: { paymentRef: string; amount: number; approvalRef: string }): Promise<ProviderResult<{ refundRef: string }>>;
-}
+// PaymentProvider lives in ../payments/types.ts — that is the canonical,
+// fully-specified interface (checkout sessions, webhook verification,
+// refunds) used by the real payment architecture. 'payment' remains a valid
+// ProviderCategory tag for the registry above.
 
 export interface EmailProvider {
   readonly key: string;
