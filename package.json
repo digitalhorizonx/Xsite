@@ -1,0 +1,27 @@
+{
+  "name": "xsite",
+  "private": true,
+  "version": "0.1.0",
+  "description": "XSite — AI-managed website delivery and operations platform (HorizonX)",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm --filter @xsite/web dev",
+    "test": "pnpm -r test",
+    "test:unit": "pnpm --filter @xsite/core test",
+    "test:integration": "pnpm --filter @xsite/db test",
+    "lint": "eslint .",
+    "typecheck": "pnpm -r typecheck",
+    "db:migrate:deploy": "pnpm --filter @xsite/db migrate:deploy",
+    "db:migrate:status": "pnpm --filter @xsite/db migrate:status",
+    "db:seed": "pnpm --filter @xsite/db seed"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "typescript-eslint": "^8.64.0"
+  }
+}

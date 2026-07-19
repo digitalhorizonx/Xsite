@@ -1,0 +1,642 @@
+// XSite persistence schema.
+//
+// Enum values that mirror a @xsite/core domain type (WebsiteType, ProjectStatus,
+// PlanKey, BundleKind, RiskLevel, EcosystemProduct, ConnectionStatus,
+// ChangeRequestSize/Classification, GateKey) use the SAME string values as the
+// TypeScript union so no translation layer is needed at the boundary.
+//
+// Tenancy rule: every row that belongs to a client hangs off `organizationId`
+// (directly or transitively). Repository functions in src/repositories/ are the
+// only sanctioned way to read/write these tables, and every one of them takes
+// an explicit organizationId and includes it in the query — see
+// docs/MULTI_TENANCY.md.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Identity & tenancy
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String   @id @default(uuid())
+  /// External auth provider subject (e.g. Clerk user id). Null for
+  /// system/service accounts created outside the auth flow.
+  authSubject   String?  @unique
+  email         String   @unique
+  name          String?
+  locale        String   @default("en")
+  isPlatformAdmin Boolean @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  memberships   OrganizationMembership[]
+
+  @@map("users")
+}
+
+enum MembershipRole {
+  owner
+  admin
+  member
+  viewer
+}
+
+model Organization {
+  id            String   @id @default(uuid())
+  name          String
+  slug          String   @unique
+  country       String?
+  defaultLocale String   @default("en")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  memberships          OrganizationMembership[]
+  businessProfile      BusinessProfile?
+  ecosystemConnections EcosystemConnection[]
+  projects             WebsiteProject[]
+  subscriptions        Subscription[]
+  payments             Payment[]
+  auditEvents          AuditEvent[]
+
+  @@map("organizations")
+}
+
+model OrganizationMembership {
+  id             String         @id @default(uuid())
+  userId         String
+  organizationId String
+  role           MembershipRole
+  createdAt      DateTime       @default(now())
+
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+  @@map("organization_memberships")
+}
+
+model BusinessProfile {
+  id             String   @id @default(uuid())
+  organizationId String   @unique
+  legalName      String
+  industry       String?
+  description    String?
+  languages      String[] @default([])
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("business_profiles")
+}
+
+// ---------------------------------------------------------------------------
+// Ecosystem connections
+// ---------------------------------------------------------------------------
+
+enum EcosystemProduct {
+  xability
+  xsite
+  xapps
+  xauto
+  xai
+}
+
+enum EcosystemConnectionStatus {
+  connected
+  not_connected
+  pending
+}
+
+model EcosystemConnection {
+  id             String                    @id @default(uuid())
+  organizationId String
+  product        EcosystemProduct
+  status         EcosystemConnectionStatus @default(not_connected)
+  externalRef    String?
+  connectedAt    DateTime?
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  xability       XabilityConnection?
+
+  @@unique([organizationId, product])
+  @@index([organizationId])
+  @@map("ecosystem_connections")
+}
+
+/// Xability-specific extension of an EcosystemConnection (product = xability).
+model XabilityConnection {
+  id                    String   @id @default(uuid())
+  ecosystemConnectionId String   @unique
+  xabilityOrgId         String?
+  subscriptionActive    Boolean  @default(false)
+  lastSyncedAt          DateTime?
+  syncedFields          Json?
+
+  ecosystemConnection   EcosystemConnection @relation(fields: [ecosystemConnectionId], references: [id], onDelete: Cascade)
+
+  @@map("xability_connections")
+}
+
+// ---------------------------------------------------------------------------
+// Website projects
+// ---------------------------------------------------------------------------
+
+enum WebsiteTypeEnum {
+  landing_page
+  business_website
+  portfolio
+  restaurant
+  clinic
+  corporate
+  real_estate
+  booking
+  blog_content
+  product_catalog
+  ecommerce
+  membership
+  custom_web_app
+}
+
+enum ProjectStatusEnum {
+  draft
+  discovery
+  scope_review
+  quote_ready
+  awaiting_approval
+  awaiting_deposit
+  planning
+  design_direction
+  awaiting_design_approval
+  building
+  automated_review
+  qa
+  awaiting_client_review
+  revision
+  awaiting_final_payment
+  ready_for_deployment
+  deploying
+  live
+  monitoring
+  maintenance
+  paused
+  cancelled
+  incident
+}
+
+enum RiskLevelEnum {
+  low
+  medium
+  high
+}
+
+model WebsiteProject {
+  id             String            @id @default(uuid())
+  organizationId String
+  name           String
+  websiteType    WebsiteTypeEnum
+  status         ProjectStatusEnum @default(draft)
+  /// Status held before a pause, so resume can return to the right stage.
+  prePauseStatus ProjectStatusEnum?
+  riskLevel      RiskLevelEnum     @default(low)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  discoverySession   DiscoverySession?
+  scopeCalculations  ScopeCalculation[]
+  quotes             Quote[]
+  approvalGates      ApprovalGate[]
+  workflowTransitions WorkflowTransition[]
+  changeRequests     ChangeRequest[]
+  auditEvents        AuditEvent[]
+  subscriptions      Subscription[]
+  payments           Payment[]
+
+  @@index([organizationId])
+  @@index([organizationId, status])
+  @@map("website_projects")
+}
+
+model DiscoverySession {
+  id             String   @id @default(uuid())
+  projectId      String   @unique
+  completeness   Float    @default(0)
+  missingFields  String[] @default([])
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  project        WebsiteProject   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  answers        DiscoveryAnswer[]
+
+  @@map("discovery_sessions")
+}
+
+model DiscoveryAnswer {
+  id                  String   @id @default(uuid())
+  discoverySessionId  String
+  key                 String
+  value               Json
+  createdAt           DateTime @default(now())
+
+  discoverySession    DiscoverySession @relation(fields: [discoverySessionId], references: [id], onDelete: Cascade)
+
+  @@unique([discoverySessionId, key])
+  @@map("discovery_answers")
+}
+
+model ScopeCalculation {
+  id              String   @id @default(uuid())
+  projectId       String
+  version         Int
+  buildScope      Json
+  operationsScope Json
+  createdAt       DateTime @default(now())
+
+  project         WebsiteProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  quotes          Quote[]
+
+  @@unique([projectId, version])
+  @@index([projectId])
+  @@map("scope_calculations")
+}
+
+// ---------------------------------------------------------------------------
+// Pricing — client quote and internal breakdown are SEPARATE tables with
+// separate access paths. src/repositories/quotes.ts never joins them into the
+// same return value for a client-facing call.
+// ---------------------------------------------------------------------------
+
+enum PlanKeyEnum {
+  essential
+  growth
+  advanced
+}
+
+enum BundleKindEnum {
+  xability
+  standalone
+}
+
+enum QuoteStatus {
+  draft
+  issued
+  superseded
+  approved
+}
+
+model Quote {
+  id                     String       @id @default(uuid())
+  projectId              String
+  scopeCalculationId     String
+  version                Int
+  configVersion          String
+  currency               String
+  thirdPartyCosts        Json
+  buildPrice             Int
+  minimumBuildPrice      Int
+  depositPct             Float
+  depositAmount          Int
+  remainingAmount        Int
+  monthlyPlan            PlanKeyEnum
+  monthlyBundle          BundleKindEnum
+  monthlyPrice           Int
+  monthlyStandalonePrice Int
+  bundleSaving           Int
+  includedScope          String[]
+  excludedScope          String[]
+  assumptions            String[]
+  explanation            String[]
+  riskLevel              RiskLevelEnum
+  deliveryEstimateMinWeeks Int
+  deliveryEstimateMaxWeeks Int
+  quoteValidityDays      Int
+  requiresCustomPricing  Boolean      @default(false)
+  status                 QuoteStatus  @default(issued)
+  createdAt               DateTime    @default(now())
+
+  project                WebsiteProject     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  scopeCalculation       ScopeCalculation   @relation(fields: [scopeCalculationId], references: [id], onDelete: Restrict)
+  lineItems              QuoteLineItem[]
+  internalBreakdown      InternalCostBreakdown?
+  approvals              ProposalApproval[]
+  payments               Payment[]
+
+  @@unique([projectId, version])
+  @@index([projectId])
+  @@map("quotes")
+}
+
+enum QuoteLineItemKind {
+  base
+  addition
+  multiplier
+  adjustment
+}
+
+model QuoteLineItem {
+  id        String            @id @default(uuid())
+  quoteId   String
+  key       String
+  label     String
+  amount    Int
+  kind      QuoteLineItemKind
+  reason    String
+
+  quote     Quote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@index([quoteId])
+  @@map("quote_line_items")
+}
+
+/// NEVER read by any client-facing serializer or API route. Access is
+/// restricted to the Pricing Agent / internal reporting path — see
+/// docs/03-domain-model.md invariant #2 and src/repositories/quotes.ts.
+model InternalCostBreakdown {
+  id                      String   @id @default(uuid())
+  quoteId                 String   @unique
+  aiExecutionCostEstimate Int
+  infraCostEstimate       Int
+  riskBufferFactor        Float
+  qaComplexityCost        Int
+  costFloor               Int
+  minimumFromMarginFloor  Int
+  preClampSubtotal        Int
+  clampedBy               String
+  marginAtRecommended     Int
+  formulaTrace            String[]
+  createdAt               DateTime @default(now())
+
+  quote                   Quote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@map("internal_cost_breakdowns")
+}
+
+enum GateKeyEnum {
+  G1_proposal_approval
+  G2_deposit_paid
+  G3_design_approval
+  G4_staging_review_approval
+  G5_final_payment
+  G6_deployment_approval
+  G7_change_request_approval
+  P1_validation_green
+  P2_deployment_lock_acquired
+  P3_domain_policy
+  P4_cancellation_policy
+  P5_budget_available
+}
+
+enum ApprovalDecision {
+  pending
+  approved
+  changes_requested
+}
+
+model ProposalApproval {
+  id         String           @id @default(uuid())
+  quoteId    String
+  gate       GateKeyEnum
+  decision   ApprovalDecision @default(pending)
+  decidedByUserId String?
+  decidedAt  DateTime?
+  note       String?
+  createdAt  DateTime         @default(now())
+
+  quote      Quote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@index([quoteId])
+  @@map("proposal_approvals")
+}
+
+model ApprovalGate {
+  id           String      @id @default(uuid())
+  projectId    String
+  gate         GateKeyEnum
+  satisfied    Boolean     @default(false)
+  satisfiedAt  DateTime?
+  satisfiedByUserId String?
+
+  project      WebsiteProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, gate])
+  @@map("approval_gates")
+}
+
+model WorkflowTransition {
+  id             String   @id @default(uuid())
+  projectId      String
+  fromStatus     ProjectStatusEnum
+  toStatus       ProjectStatusEnum
+  gatesSatisfied String[] @default([])
+  triggeredByKind String  // 'user' | 'agent' | 'system'
+  triggeredById  String
+  reason         String?
+  at             DateTime @default(now())
+
+  project        WebsiteProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("workflow_transitions")
+}
+
+// ---------------------------------------------------------------------------
+// Change requests
+// ---------------------------------------------------------------------------
+
+enum ChangeRequestSizeEnum {
+  small
+  medium
+  major_revision
+  new_feature
+  new_project_scope
+}
+
+enum ChangeRequestClassificationEnum {
+  included
+  overage
+  new_project_scope
+}
+
+enum ChangeRequestStatus {
+  submitted
+  approved
+  rejected
+  in_progress
+  deployed
+}
+
+model ChangeRequest {
+  id              String                          @id @default(uuid())
+  projectId       String
+  description     String
+  size            ChangeRequestSizeEnum
+  classification  ChangeRequestClassificationEnum
+  overagePrice    Int                             @default(0)
+  requiresApproval Boolean                        @default(false)
+  status          ChangeRequestStatus             @default(submitted)
+  createdAt       DateTime                        @default(now())
+  updatedAt       DateTime                        @updatedAt
+
+  project         WebsiteProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("change_requests")
+}
+
+// ---------------------------------------------------------------------------
+// Audit — immutable, insert-only. No repository function exposes an update
+// or delete for this model (enforced in src/repositories/audit.ts).
+// ---------------------------------------------------------------------------
+
+model AuditEvent {
+  id             String   @id @default(uuid())
+  organizationId String
+  projectId      String?
+  actorKind      String   // 'user' | 'agent' | 'system'
+  actorId        String
+  action         String
+  subject        String
+  payload        Json     @default("{}")
+  at             DateTime @default(now())
+
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  project        WebsiteProject? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([projectId])
+  @@map("audit_events")
+}
+
+// ---------------------------------------------------------------------------
+// Billing & payments
+// ---------------------------------------------------------------------------
+
+enum SubscriptionStatus {
+  incomplete
+  trialing
+  active
+  past_due
+  paused
+  cancelled
+}
+
+model Subscription {
+  id                String             @id @default(uuid())
+  organizationId    String
+  projectId         String
+  plan              PlanKeyEnum
+  bundle            BundleKindEnum
+  price             Int
+  currency          String
+  status            SubscriptionStatus @default(incomplete)
+  startedAt         DateTime?
+  currentPeriodEnd  DateTime?
+  providerKey       String?
+  providerRef       String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  organization      Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  project           WebsiteProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  payments          Payment[]
+
+  @@index([organizationId])
+  @@index([projectId])
+  @@map("subscriptions")
+}
+
+enum PaymentKind {
+  deposit
+  final
+  subscription
+  overage
+  refund
+}
+
+enum PaymentStatus {
+  created
+  pending
+  requires_action
+  authorized
+  paid
+  failed
+  cancelled
+  refunded
+  partially_refunded
+  disputed
+}
+
+model Payment {
+  id              String        @id @default(uuid())
+  organizationId  String
+  projectId       String?
+  subscriptionId  String?
+  quoteId         String?
+  kind            PaymentKind
+  status          PaymentStatus @default(created)
+  amount          Int
+  currency        String
+  providerKey     String
+  providerRef     String?
+  idempotencyKey  String        @unique
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  organization    Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  project         WebsiteProject? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  subscription    Subscription?  @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  quote           Quote?         @relation(fields: [quoteId], references: [id], onDelete: SetNull)
+  attempts        PaymentAttempt[]
+
+  @@index([organizationId])
+  @@index([projectId])
+  @@map("payments")
+}
+
+model PaymentAttempt {
+  id           String   @id @default(uuid())
+  paymentId    String
+  providerRef  String?
+  status       PaymentStatus
+  rawResponse  Json?
+  createdAt    DateTime @default(now())
+
+  payment      Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId])
+  @@map("payment_attempts")
+}
+
+enum WebhookEventStatus {
+  received
+  processed
+  failed
+  ignored_duplicate
+}
+
+model WebhookEvent {
+  id               String             @id @default(uuid())
+  providerKey      String
+  eventType        String
+  /// Provider's own event id — the idempotency key for webhook processing.
+  externalEventId  String             @unique
+  signatureValid   Boolean
+  payload          Json
+  status           WebhookEventStatus @default(received)
+  processedAt      DateTime?
+  createdAt        DateTime           @default(now())
+
+  @@index([providerKey])
+  @@map("webhook_events")
+}
