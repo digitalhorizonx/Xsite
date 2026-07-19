@@ -39,14 +39,20 @@ information, branding, content, audience data, campaigns, and assets instead of 
 xsite/
 ├── docs/                  # Engineering & product foundation (start here)
 ├── packages/
-│   └── core/              # @xsite/core — domain model, pricing engine, scope engine,
-│                          #   workflow state machine, agent catalog, provider interfaces,
-│                          #   audit events. Pure TypeScript, fully unit-tested.
+│   ├── core/              # @xsite/core — domain model, pricing engine, scope engine,
+│   │                      #   workflow state machine, agent catalog, provider interfaces,
+│   │                      #   payment architecture, audit events. Pure TypeScript, fully
+│   │                      #   unit-tested. No framework/vendor dependencies.
+│   └── db/                # @xsite/db — Prisma schema, migrations, org-scoped repositories.
+│                          #   Real PostgreSQL persistence, multi-tenancy enforcement.
 └── apps/
-    └── web/               # @xsite/web — client portal (Next.js). Phase 1 application shell.
+    └── web/               # @xsite/web — client portal + API (Next.js). Auth (Clerk), real
+                           #   persisted project/quote/payment flow, deployment config.
 ```
 
 ## Documentation index
+
+**Product foundation:**
 
 | Doc | Contents |
 |---|---|
@@ -64,20 +70,45 @@ xsite/
 | [docs/12-implementation-phases.md](docs/12-implementation-phases.md) | MVP scope, deferred scope, phases, first milestone |
 | [docs/13-risks-assumptions-decisions.md](docs/13-risks-assumptions-decisions.md) | Risks, assumptions, open decisions |
 
+**Phase 1.5 production readiness:**
+
+| Doc | Contents |
+|---|---|
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Vercel monorepo config, domain setup, env vars, manual deployment steps |
+| [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md) | Clerk architecture, roles, demo-mode bypass, activation steps |
+| [docs/PERSISTENCE.md](docs/PERSISTENCE.md) | PostgreSQL/Prisma setup, migrations, seed data, transaction boundaries |
+| [docs/MULTI_TENANCY.md](docs/MULTI_TENANCY.md) | Org-scoping enforcement, verification evidence |
+| [docs/PAYMENTS.md](docs/PAYMENTS.md) | Provider research/selection, architecture, PayTabs activation steps |
+| [docs/PRODUCTION_CHECKLIST.md](docs/PRODUCTION_CHECKLIST.md) | What's done, verified, and still pending an external account |
+
 ## Development
 
-Requires Node ≥ 22 and pnpm ≥ 10.
+Requires Node ≥ 22, pnpm ≥ 10, and a local PostgreSQL 16 instance.
 
 ```bash
-pnpm install
-pnpm test        # unit tests (@xsite/core)
+pnpm install                 # also runs `prisma generate` for @xsite/db
+createdb xsite_dev && createdb xsite_test
+# create packages/db/.env with DATABASE_URL — see docs/PERSISTENCE.md
+pnpm db:migrate:deploy
+pnpm db:seed
+
+pnpm lint
 pnpm typecheck
-pnpm dev         # portal at http://localhost:3000
+pnpm test:unit               # @xsite/core — 72 tests, no database
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/xsite_test pnpm test:integration
+                              # @xsite/db — 15 tests, real Postgres, multi-tenancy + persistence
+pnpm dev                     # portal at http://localhost:3000
 ```
 
-All data visible in the Phase 1 portal is **demo data, clearly marked as demo**. Feature
-surfaces are explicitly labeled `Available`, `Simulated`, `Planned`, or `Requires Integration` —
-Phase 2–4 capabilities are never faked as working.
+Without Clerk/PayTabs credentials configured, the portal runs in **demo mode**: authentication
+is bypassed (against a real seeded organization, not a fake identity) and payments use the
+sandbox-only mock provider. This is structurally impossible to reach in a real production
+deployment — see [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md). The rendered portal *pages*
+(dashboard, projects list, etc.) still show Phase 1 static demo fixtures; the persisted
+`/api/v1/...` API layer is real and tested, but the pages haven't been rewired to call it yet —
+see [docs/PRODUCTION_CHECKLIST.md](docs/PRODUCTION_CHECKLIST.md) for exactly what's done vs.
+pending. Feature surfaces are explicitly labeled `Available`, `Simulated`, `Planned`, or
+`Requires Integration` — nothing is faked as working.
 
 ## Domains
 
