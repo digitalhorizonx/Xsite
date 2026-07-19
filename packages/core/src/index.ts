@@ -8,6 +8,7 @@ export * from './agents/catalog';
 export * from './providers/types';
 export * from './providers/selection';
 export * from './audit/events';
+export * from './auth/types';
 export * from './payments/types';
 export * from './payments/mock-provider';
 // payments/paytabs-provider.ts uses Node's `node:crypto` and is server-only —

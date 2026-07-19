@@ -1,6 +1,11 @@
 import { prisma } from '../client';
-import type { MembershipRole } from '@prisma/client';
 import { appendAuditEvent } from './audit';
+// Re-exported so callers can `import { roleAtLeast } from '@xsite/db'` without
+// also depending on @xsite/core directly. The role hierarchy is defined ONCE,
+// in @xsite/core/auth/types.ts — Prisma's generated MembershipRole enum uses
+// the identical string literals ('owner'|'admin'|'member'|'viewer'), so it is
+// structurally assignable without a cast.
+export { roleAtLeast } from '@xsite/core';
 
 export interface CreateOrganizationInput {
   name: string;
@@ -65,11 +70,6 @@ export async function requireMembership(userId: string, organizationId: string) 
     throw new Error(`User ${userId} has no membership in organization ${organizationId}`);
   }
   return membership;
-}
-
-export function roleAtLeast(role: MembershipRole, minimum: MembershipRole): boolean {
-  const order: MembershipRole[] = ['viewer', 'member', 'admin', 'owner'];
-  return order.indexOf(role) >= order.indexOf(minimum);
 }
 
 export async function upsertBusinessProfile(

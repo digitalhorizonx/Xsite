@@ -3,6 +3,7 @@ import Link from 'next/link';
 import './globals.css';
 import { DemoBadge } from '@/components/badges';
 import { demoOrganization } from '@/lib/demo-data';
+import { isClerkConfigured } from '@/lib/auth/config';
 
 export const metadata: Metadata = {
   title: 'XSite — AI-managed website delivery and operations',
@@ -18,7 +19,28 @@ const nav: Array<{ href: string; label: string }> = [
   { href: '/organization', label: 'Organization' },
 ];
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+async function AuthStatus() {
+  if (!isClerkConfigured()) {
+    return <p className="px-2 text-xs text-slate-400">Auth not configured — demo/unauthenticated mode.</p>;
+  }
+  // Deferred import: only evaluated when Clerk is actually configured, so a
+  // deployment without keys never touches the Clerk runtime here either.
+  const { SignedIn, SignedOut, UserButton } = await import('@clerk/nextjs');
+  return (
+    <div className="flex items-center gap-2 px-2">
+      <SignedIn>
+        <UserButton afterSignOutUrl="/sign-in" />
+      </SignedIn>
+      <SignedOut>
+        <Link href="/sign-in" className="text-xs font-medium text-sky-600 hover:underline dark:text-sky-400">
+          Sign in
+        </Link>
+      </SignedOut>
+    </div>
+  );
+}
+
+function Shell({ children }: { children: React.ReactNode }) {
   return (
     // lang/dir are per-locale once i18n content lands; the layout is RTL-ready.
     <html lang="en" dir="ltr">
@@ -43,7 +65,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 </Link>
               ))}
             </nav>
-            <div className="mt-auto space-y-2 px-2 pt-6">
+            <div className="mt-auto space-y-3 px-2 pt-6">
+              <AuthStatus />
               <p className="text-xs font-medium text-slate-600 dark:text-slate-300">{demoOrganization.name}</p>
               <p className="text-xs text-slate-400">
                 Phase 1 foundation — all data is demo. <DemoBadge />
@@ -59,5 +82,19 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </div>
       </body>
     </html>
+  );
+}
+
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  if (!isClerkConfigured()) {
+    return <Shell>{children}</Shell>;
+  }
+  // Deferred import mirrors AuthStatus above — keeps the Clerk runtime out of
+  // the render path entirely when it isn't configured.
+  const { ClerkProvider } = await import('@clerk/nextjs');
+  return (
+    <ClerkProvider>
+      <Shell>{children}</Shell>
+    </ClerkProvider>
   );
 }
