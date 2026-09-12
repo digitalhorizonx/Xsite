@@ -1,0 +1,68 @@
+'use client';
+
+import Link from 'next/link';
+import { FormEvent, useMemo, useState } from 'react';
+import { addLead, budgetMidpoint, scoreLead } from '@/lib/sales-store';
+import type { Lead, ServiceType } from '@/lib/sales-types';
+
+const services: Array<{ value: ServiceType; en: string; ar: string }> = [
+  { value: 'website', en: 'Website', ar: 'موقع إلكتروني' },
+  { value: 'app', en: 'Mobile App', ar: 'تطبيق موبايل' },
+  { value: 'business_system', en: 'Business System', ar: 'نظام أعمال' },
+  { value: 'ai_solution', en: 'AI Solution', ar: 'حل ذكاء اصطناعي' },
+  { value: 'ecommerce', en: 'E-commerce', ar: 'متجر إلكتروني' },
+  { value: 'crm', en: 'CRM / Sales System', ar: 'CRM / نظام مبيعات' },
+  { value: 'recommend', en: 'Recommend the right solution', ar: 'اقترحوا الحل المناسب' },
+];
+
+const budgets = ['Under 500 JOD', '500–1,000 JOD', '1,000–2,500 JOD', '2,500–5,000 JOD', '5,000–10,000 JOD', '10,000+ JOD', 'Not sure'];
+const timelines = ['Immediately', 'Within 2 weeks', 'Within 1 month', '1–3 months', 'No fixed deadline'];
+
+export default function StartProjectPage() {
+  const [lang, setLang] = useState<'en' | 'ar'>('en');
+  const [step, setStep] = useState(0);
+  const [done, setDone] = useState<Lead | null>(null);
+  const [form, setForm] = useState({
+    service: '' as ServiceType | '', goal: '', businessName: '', industry: '', country: 'Jordan', city: '',
+    problem: '', currentWorkflow: '', teamSize: '', maturity: '', budget: '', timeline: '',
+    contactName: '', phone: '', whatsapp: '', email: '',
+  });
+  const rtl = lang === 'ar';
+  const set = (key: keyof typeof form, value: string) => setForm((prev) => ({ ...prev, [key]: value }));
+  const valid = useMemo(() => [Boolean(form.service), Boolean(form.goal), form.businessName.trim().length > 1, form.problem.trim().length > 9, Boolean(form.budget && form.timeline), form.contactName.trim().length > 1 && form.phone.trim().length > 5 && form.whatsapp.trim().length > 5][step], [form, step]);
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!form.service) return;
+    const leadBase = {
+      budget: form.budget, timeline: form.timeline, problem: form.problem, service: form.service,
+    };
+    const lead: Lead = {
+      id: crypto.randomUUID(), createdAt: new Date().toISOString(), businessName: form.businessName.trim(),
+      contactName: form.contactName.trim(), phone: form.phone.trim(), whatsapp: form.whatsapp.trim(), email: form.email.trim() || undefined,
+      country: form.country, city: form.city || undefined, industry: form.industry || undefined, service: form.service,
+      goal: form.goal, problem: form.problem.trim(), currentWorkflow: form.currentWorkflow || undefined, teamSize: form.teamSize || undefined,
+      maturity: form.maturity || undefined, budget: form.budget, timeline: form.timeline, source: 'xsite_project_intake', status: 'new',
+      score: scoreLead(leadBase), estimatedValue: budgetMidpoint(form.budget), nextAction: 'Review requirement and prepare solution brief',
+    };
+    addLead(lead);
+    setDone(lead);
+  }
+
+  if (done) return <main className="min-h-screen bg-slate-950 px-6 py-20 text-white"><div className="mx-auto max-w-2xl rounded-3xl border border-emerald-500/30 bg-emerald-500/5 p-10 text-center"><div className="text-5xl">✓</div><h1 className="mt-4 text-3xl font-black">{rtl ? 'تم استلام مشروعك' : 'Your project request is in.'}</h1><p className="mt-3 text-slate-400">{rtl ? 'تم تحليل البيانات الأولية وسيتم تجهيز الحل المناسب والخطوة التالية.' : 'Your initial requirements are captured and ready for solution review.'}</p><div className="mt-6 rounded-2xl bg-white/5 p-5"><p className="text-sm text-slate-400">Lead qualification score</p><p className="mt-1 text-4xl font-black text-orange-400">{done.score}/100</p></div><Link href="/sales" className="mt-7 inline-block rounded-xl bg-orange-500 px-6 py-3 font-bold text-black">Open sales dashboard</Link></div></main>;
+
+  return <main dir={rtl ? 'rtl' : 'ltr'} className="min-h-screen bg-slate-950 text-white"><div className="mx-auto max-w-5xl px-6 py-8"><header className="flex items-center justify-between"><Link href="/" className="text-xl font-black">XSite <span className="text-xs font-medium text-slate-500">by HorizonX</span></Link><button onClick={() => setLang(rtl ? 'en' : 'ar')} className="rounded-full border border-white/15 px-4 py-2 text-sm">{rtl ? 'English' : 'العربية'}</button></header><section className="mx-auto max-w-3xl pb-10 pt-16 text-center"><p className="mb-4 text-sm font-bold uppercase tracking-[.2em] text-orange-400">XSite Solution Intake</p><h1 className="text-4xl font-black leading-tight sm:text-6xl">{rtl ? 'احكِ لنا ما يحتاجه عملك، وسنحدد الحل الرقمي المناسب.' : 'Tell us what your business needs. We’ll define the right digital solution.'}</h1><p className="mt-5 text-lg text-slate-400">{rtl ? 'مواقع • تطبيقات • أنظمة أعمال • حلول ذكاء اصطناعي' : 'Websites • Apps • Business Systems • AI Solutions'}</p></section><form onSubmit={submit} className="mx-auto max-w-4xl rounded-3xl border border-white/10 bg-white/[.04] p-6 sm:p-9"><div className="mb-8 flex gap-2">{Array.from({ length: 6 }).map((_, i) => <div key={i} className={`h-1.5 flex-1 rounded-full ${i <= step ? 'bg-orange-500' : 'bg-white/10'}`} />)}</div>
+
+  {step === 0 && <Section title={rtl ? 'ما الذي تحتاجه؟' : 'What do you need?'}><div className="grid gap-3 sm:grid-cols-2">{services.map((item) => <Choice key={item.value} selected={form.service === item.value} onClick={() => set('service', item.value)}>{rtl ? item.ar : item.en}</Choice>)}</div></Section>}
+  {step === 1 && <Section title={rtl ? 'ما الهدف الرئيسي من المشروع؟' : 'What is the main business goal?'}><textarea value={form.goal} onChange={(e) => set('goal', e.target.value)} rows={4} placeholder={rtl ? 'مثال: زيادة المبيعات، أتمتة العمل، توليد ليدات...' : 'Example: increase sales, automate work, generate leads...'} className="field" /></Section>}
+  {step === 2 && <Section title={rtl ? 'عن عملك' : 'About your business'}><div className="grid gap-4 sm:grid-cols-2"><Input value={form.businessName} onChange={(v) => set('businessName', v)} placeholder={rtl ? 'اسم الشركة / المشروع' : 'Business name'} /><Input value={form.industry} onChange={(v) => set('industry', v)} placeholder={rtl ? 'المجال' : 'Industry'} /><Input value={form.country} onChange={(v) => set('country', v)} placeholder={rtl ? 'الدولة' : 'Country'} /><Input value={form.city} onChange={(v) => set('city', v)} placeholder={rtl ? 'المدينة' : 'City'} /><Input value={form.teamSize} onChange={(v) => set('teamSize', v)} placeholder={rtl ? 'حجم الفريق' : 'Team size'} /><Input value={form.maturity} onChange={(v) => set('maturity', v)} placeholder={rtl ? 'فكرة / متطلبات واضحة / نظام قائم' : 'Idea / clear requirements / existing system'} /></div></Section>}
+  {step === 3 && <Section title={rtl ? 'اشرح المشكلة أو العملية التي تريد تحسينها' : 'Describe the problem or process you want to improve'}><textarea value={form.problem} onChange={(e) => set('problem', e.target.value)} rows={6} placeholder={rtl ? 'ما الذي يحدث الآن؟ أين تضيع الفرص أو الوقت؟' : 'What happens today? Where are you losing opportunities or time?'} className="field" /><Input value={form.currentWorkflow} onChange={(v) => set('currentWorkflow', v)} placeholder={rtl ? 'كيف تديرون العملية حالياً؟ واتساب، إكسل، نظام...' : 'Current workflow: WhatsApp, Excel, existing system...'} /></Section>}
+  {step === 4 && <Section title={rtl ? 'الميزانية والوقت' : 'Budget & timeline'}><p className="mb-3 text-sm text-slate-400">{rtl ? 'الميزانية المتوقعة' : 'Expected budget'}</p><div className="grid gap-2 sm:grid-cols-2">{budgets.map((item) => <Choice key={item} selected={form.budget === item} onClick={() => set('budget', item)}>{item}</Choice>)}</div><p className="mb-3 mt-7 text-sm text-slate-400">{rtl ? 'متى تحتاج أن تبدأ؟' : 'When do you need to start?'}</p><div className="flex flex-wrap gap-2">{timelines.map((item) => <Choice key={item} selected={form.timeline === item} onClick={() => set('timeline', item)} compact>{item}</Choice>)}</div></Section>}
+  {step === 5 && <Section title={rtl ? 'بيانات التواصل' : 'How can we reach you?'}><div className="grid gap-4 sm:grid-cols-2"><Input value={form.contactName} onChange={(v) => set('contactName', v)} placeholder={rtl ? 'الاسم' : 'Name'} /><Input value={form.phone} onChange={(v) => set('phone', v)} placeholder={rtl ? 'رقم الهاتف' : 'Phone'} /><Input value={form.whatsapp} onChange={(v) => set('whatsapp', v)} placeholder="WhatsApp" /><Input value={form.email} onChange={(v) => set('email', v)} placeholder="Email" /></div></Section>}
+
+  <div className="mt-8 flex justify-between gap-3"><button type="button" disabled={step === 0} onClick={() => setStep((v) => v - 1)} className="rounded-xl border border-white/10 px-5 py-3 disabled:opacity-30">{rtl ? 'السابق' : 'Back'}</button>{step < 5 ? <button type="button" disabled={!valid} onClick={() => setStep((v) => v + 1)} className="rounded-xl bg-orange-500 px-6 py-3 font-bold text-black disabled:opacity-40">{rtl ? 'التالي' : 'Continue'}</button> : <button disabled={!valid} className="rounded-xl bg-orange-500 px-6 py-3 font-bold text-black disabled:opacity-40">{rtl ? 'أرسل طلبي' : 'Submit my project'}</button>}</div></form></div></main>;
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) { return <section><h2 className="mb-6 text-2xl font-black">{title}</h2><div className="space-y-4">{children}</div></section>; }
+function Choice({ selected, onClick, children, compact = false }: { selected: boolean; onClick: () => void; children: React.ReactNode; compact?: boolean }) { return <button type="button" onClick={onClick} className={`${compact ? 'px-4 py-2' : 'p-4'} rounded-xl border text-start transition ${selected ? 'border-orange-500 bg-orange-500/10' : 'border-white/10 bg-black/20 hover:border-white/25'}`}>{children}</button>; }
+function Input({ value, onChange, placeholder }: { value: string; onChange: (value: string) => void; placeholder: string }) { return <input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className="field" />; }
